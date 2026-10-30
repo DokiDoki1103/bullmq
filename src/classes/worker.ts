@@ -339,12 +339,21 @@ export class Worker<
       throw new Error('drainDelay must be greater than 0');
     }
 
+    if (this.opts.limiter && this.opts.localLimiter) {
+      throw new Error(
+        'limiter and localLimiter cannot be used together on the same worker',
+      );
+    }
+
     this.concurrency = this.opts.concurrency;
 
     this.opts.lockRenewTime =
       this.opts.lockRenewTime || this.opts.lockDuration / 2;
 
     this.id = randomUUID();
+    if (this.opts.localLimiter) {
+      this.opts.localLimiterId = this.id;
+    }
 
     this.createLockManager();
 
@@ -1400,6 +1409,11 @@ export class Worker<
           const asyncCleanups = [
             () => {
               return force || this.whenCurrentJobsFinished(false);
+            },
+            async () => {
+              if (this.opts.localLimiter) {
+                await this.backend.removeRateLimitKey();
+              }
             },
             () => this.lockManager.close(),
             () => this.childPool?.clean(),

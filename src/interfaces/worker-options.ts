@@ -42,6 +42,24 @@ export interface WorkerOptions<ConnectionOptionsType = ConnectionOptions>
   limiter?: RateLimiterOptions;
 
   /**
+   * Per-worker local rate limiter. Each worker instance maintains an independent
+   * rate limit counter in Redis, so N workers yield approximately N× total throughput.
+   * Unlike `limiter` (which is shared across all workers on the same queue),
+   * `localLimiter` is scoped to the individual worker process.
+   *
+   * Cannot be combined with `limiter` on the same worker instance.
+   * @see {@link https://docs.bullmq.io/guide/rate-limiting}
+   */
+  localLimiter?: RateLimiterOptions;
+
+  /**
+   * Id of the worker owning the `localLimiter` counter. Set by the Worker
+   * itself right after it generates its id, not meant to be provided by users.
+   * @internal
+   */
+  localLimiterId?: string;
+
+  /**
    * Enable collect metrics.
    * @see {@link https://docs.bullmq.io/guide/metrics}
    */

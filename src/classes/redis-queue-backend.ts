@@ -1191,12 +1191,14 @@ export class RedisQueueBackend extends EventEmitter implements IQueueBackend {
     const metricsKey = this.queue.toKey(`metrics:${target}`);
 
     const keys = this.moveToFinishedKeys;
+    keys[5] = this.getLocalLimiterKey();
     keys[10] = queueKeys[target];
     keys[11] = this.queue.toKey(job.id ?? '');
     keys[12] = metricsKey;
     keys[13] = this.queue.keys.marker;
 
     const keepJobs = this.getKeepJobs(shouldRemove, workerKeepJobs);
+    const limiterConfig = opts.localLimiter ?? opts.limiter;
 
     const args = [
       job.id,
@@ -1210,7 +1212,7 @@ export class RedisQueueBackend extends EventEmitter implements IQueueBackend {
         token,
         name: opts.name,
         keepJobs,
-        limiter: opts.limiter,
+        limiter: limiterConfig,
         lockDuration: opts.lockDuration,
         attempts: job.opts.attempts,
         maxMetricsSize: opts.metrics?.maxDataPoints
@@ -1645,6 +1647,7 @@ export class RedisQueueBackend extends EventEmitter implements IQueueBackend {
   ): (string | number | Buffer)[] {
     const queueKeys = this.queue.keys;
     const workerOpts: WorkerOptions = <WorkerOptions>this.queue.opts;
+    const limiterConfig = workerOpts.localLimiter ?? workerOpts.limiter;
 
     const keys: (string | number | Buffer)[] = [
       queueKeys.marker,
@@ -1656,7 +1659,7 @@ export class RedisQueueBackend extends EventEmitter implements IQueueBackend {
       queueKeys.meta,
       queueKeys.stalled,
       queueKeys.wait,
-      queueKeys.limiter,
+      this.getLocalLimiterKey(),
       queueKeys.pc,
     ];
 
@@ -1677,7 +1680,7 @@ export class RedisQueueBackend extends EventEmitter implements IQueueBackend {
         ? pack({
             token,
             lockDuration: workerOpts.lockDuration,
-            limiter: workerOpts.limiter,
+            limiter: limiterConfig,
             name: workerOpts.name,
           })
         : void 0,
@@ -1792,9 +1795,20 @@ export class RedisQueueBackend extends EventEmitter implements IQueueBackend {
     }
   }
 
+  /**
+   * Key of the rate limiter counter. Workers using `localLimiter` get their own
+   * counter (`limiter:{workerId}`); everyone else shares the queue's global key.
+   */
+  getLocalLimiterKey(): string {
+    const opts = this.queue.opts as WorkerOptions;
+    return opts.localLimiter && opts.localLimiterId
+      ? `${this.queue.keys.limiter}:${opts.localLimiterId}`
+      : this.queue.keys.limiter;
+  }
+
   getRateLimitTtlArgs(maxJobs?: number): (string | number)[] {
     const keys: (string | number)[] = [
-      this.queue.keys.limiter,
+      this.getLocalLimiterKey(),
       this.queue.keys.meta,
     ];
 
@@ -2073,13 +2087,14 @@ export class RedisQueueBackend extends EventEmitter implements IQueueBackend {
     const opts = this.queue.opts as WorkerOptions;
 
     const queueKeys = this.queue.keys;
+    const limiterConfig = opts.localLimiter ?? opts.limiter;
     const keys = [
       queueKeys.wait,
       queueKeys.active,
       queueKeys.prioritized,
       queueKeys.events,
       queueKeys.stalled,
-      queueKeys.limiter,
+      this.getLocalLimiterKey(),
       queueKeys.delayed,
       queueKeys.paused,
       queueKeys.meta,
@@ -2093,7 +2108,7 @@ export class RedisQueueBackend extends EventEmitter implements IQueueBackend {
       pack({
         token,
         lockDuration: opts.lockDuration,
-        limiter: opts.limiter,
+        limiter: limiterConfig,
         name,
       }),
     ];
@@ -2193,7 +2208,7 @@ export class RedisQueueBackend extends EventEmitter implements IQueueBackend {
       this.queue.keys.stalled,
       this.queue.keys.paused,
       this.queue.keys.meta,
-      this.queue.keys.limiter,
+      this.getLocalLimiterKey(),
       this.queue.keys.prioritized,
       this.queue.keys.marker,
       this.queue.keys.events,
@@ -2795,14 +2810,14 @@ export class RedisQueueBackend extends EventEmitter implements IQueueBackend {
 
   async setRateLimit(expireTimeMs: number): Promise<void> {
     const client = await this.queue.client;
-    await client.set(this.queue.keys.limiter, Number.MAX_SAFE_INTEGER, {
+    await client.set(this.getLocalLimiterKey(), Number.MAX_SAFE_INTEGER, {
       PX: expireTimeMs,
     });
   }
 
   async removeRateLimitKey(): Promise<number> {
     const client = await this.queue.client;
-    return client.del(this.queue.keys.limiter);
+    return client.del(this.getLocalLimiterKey());
   }
 
   async removeDeprecatedPriorityKey(): Promise<number> {
