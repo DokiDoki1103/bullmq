@@ -9,7 +9,7 @@ import {
   expect,
 } from 'vitest';
 
-import { randomUUID as v4 } from 'crypto';
+import { randomUUID as v4 } from 'node:crypto';
 import { Queue, QueueEvents, RateLimitError, Worker } from '../src/classes';
 import { delay, removeAllQueueData } from '../src/utils';
 
